@@ -27,9 +27,12 @@ import (
 	rbacv1listers "k8s.io/client-go/listers/rbac/v1"
 )
 
+const accessListExpiry = time.Minute
+
 var kubeconfig string
 var opaUrl string
 
+var accessListExpires time.Time
 var lastAccessList map[string][]string
 
 // areEqual compares the two given access lists and checks if they are the same.
@@ -107,8 +110,9 @@ func generateAccessList(profilesLister kubeflowv1listers.ProfileLister, roleBind
 
 	// Compare against the last access list we generated...
 	// If it's different, then send it to the Open Policy Agent
-	if areEqual(lastAccessList, access) {
-		klog.Infof("generated same access list.. skipping send to OPA")
+	// 	or if it hasn't been updated in the last minute.
+	if areEqual(lastAccessList, access) && time.Now().Before(accessListExpires) {
+		klog.Infof("generated same access list and expiry hasn't passed.. skipping send to OPA")
 		return nil
 	}
 
@@ -135,6 +139,7 @@ func generateAccessList(profilesLister kubeflowv1listers.ProfileLister, roleBind
 
 	// Store the generated list for the next time
 	lastAccessList = access
+	accessListExpires = time.Now().Add(accessListExpiry)
 	return nil
 }
 
@@ -175,8 +180,8 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	factory := informers.NewSharedInformerFactory(client, time.Minute*5)
-	kubeflowFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowclient, time.Minute*5)
+	factory := informers.NewSharedInformerFactory(client, time.Minute)
+	kubeflowFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowclient, time.Minute)
 
 	// RoleBindings
 	roleBindingsInformer := factory.Rbac().V1().RoleBindings()
